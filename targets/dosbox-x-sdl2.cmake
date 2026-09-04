@@ -719,7 +719,8 @@ if (${EMSCRIPTEN})
     add_executable(wdosbox-x "${SRC_DIR}/dos/dosbox/cpp/worker-protocol.cpp"
         "${NATIVE_DIR}/jsdos/jsdos-asyncify.cpp")
     add_executable(wdosbox-x-jspi "${SRC_DIR}/dos/dosbox/cpp/worker-protocol.cpp"
-        "${NATIVE_DIR}/jsdos/jsdos-asyncify.cpp")
+        "${NATIVE_DIR}/jsdos/jsdos-asyncify.cpp"
+        "${NATIVE_DIR}/jsdos/jsdos-wasmjit.cpp")
     target_compile_definitions(wdosbox-x-jspi PRIVATE JSPI)
 
     set_target_properties(wdosbox-x PROPERTIES SUFFIX .js)
@@ -746,6 +747,7 @@ if (${EMSCRIPTEN})
 #       "-sASSERTIONS=2"
 #       "-sSAFE_HEAP=2"
         "-sERROR_ON_UNDEFINED_SYMBOLS=1"
+        "-sALLOW_TABLE_GROWTH=1"   # fury: the wasm JIT adds generated blocks to the table
     )
 
     target_link_options(wdosbox-x PUBLIC

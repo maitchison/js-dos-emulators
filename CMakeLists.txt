@@ -81,8 +81,14 @@ if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL ""))
 	 add_link_options(-fsanitize=address)
 else ()
 	message(STATUS "RELEASE BUILD")
-	add_compile_options(-Oz)
-	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Oz -flto=thin")
+	# fury: js-dos ships -Oz (size). JSDOS_OPT picks the level, JSDOS_EXTRA_CFLAGS
+	# adds e.g. -msimd128; both reach the linker too.
+	set(JSDOS_OPT "-Oz" CACHE STRING "optimisation level for the release build")
+	set(JSDOS_EXTRA_CFLAGS "" CACHE STRING "extra compile+link flags for the release build")
+	message(STATUS "fury: opt ${JSDOS_OPT} extra '${JSDOS_EXTRA_CFLAGS}'")
+	separate_arguments(JSDOS_EXTRA_LIST UNIX_COMMAND "${JSDOS_EXTRA_CFLAGS}")
+	add_compile_options(${JSDOS_OPT} ${JSDOS_EXTRA_LIST})
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${JSDOS_OPT} ${JSDOS_EXTRA_CFLAGS} -flto=thin")
 endif()
 
 if(${EMSCRIPTEN})

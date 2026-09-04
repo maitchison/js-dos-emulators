@@ -1071,6 +1071,9 @@ void client_tick() {
   reentranceLock = false;
 }
 
+#ifdef FURY_JIT_SPIKE
+extern "C" void fury_jit_selftest();
+#endif
 extern "C" void EMSCRIPTEN_KEEPALIVE runRuntime() {
   server_run();
   emsc_ws_exit_runtime();
