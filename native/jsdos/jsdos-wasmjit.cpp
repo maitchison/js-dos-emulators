@@ -13,7 +13,15 @@ EM_JS(int, fury_jit_instantiate, (const uint8_t* bytes, int len), {
   try {
     const mod = new WebAssembly.Module(HEAPU8.subarray(bytes, bytes + len));
     const inst = new WebAssembly.Instance(mod, { env: { memory: wasmMemory, table: wasmTable } });
-    const idx = wasmTable.grow(1);
+    // table slots come from a pool grown in chunks: growing by one per block
+    // makes the engine reallocate the table for every block
+    let pool = Module.furyTablePool;
+    if (!pool || pool.length === 0) {
+      const base = wasmTable.grow(4096);
+      pool = Module.furyTablePool = [];
+      for (let i = base + 4095; i >= base; i--) pool.push(i);
+    }
+    const idx = pool.pop();
     wasmTable.set(idx, inst.exports.f);
     return idx;
   } catch (e) {
