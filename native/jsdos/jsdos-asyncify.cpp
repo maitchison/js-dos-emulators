@@ -32,7 +32,7 @@ EM_ASYNC_JS(void, syncSleep, (unsigned int ms, bool nonSkippable), {
       // atomic wait -- no timer clamping, no stack switch -- where the page
       // is cross-origin isolated; the periodic skippable yields still let
       // the worker's messages through
-      if (ms <= 4 && typeof SharedArrayBuffer !== "undefined" && typeof Atomics !== "undefined") {
+      if (ms <= 4 && typeof importScripts === "function" && typeof SharedArrayBuffer !== "undefined" && typeof Atomics !== "undefined") {
         if (!Module.furyWait) { try { Module.furyWait = new Int32Array(new SharedArrayBuffer(4)); } catch (e) { Module.furyWait = null; } }
         if (Module.furyWait) {
           const t0 = performance.now();
