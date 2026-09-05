@@ -41,6 +41,10 @@
 #else
 /* #undef C_DYNAMIC_X86 */
 /* #undef C_DYNREC */
+#if defined(__EMSCRIPTEN__) && defined(FURY_WASMJIT)
+/* fury: the dynrec core with the WebAssembly backend (core_dynrec/risc_wasm.h) */
+#define C_DYNREC 1
+#endif
 #endif
 
 /* Define to 1 to enable floating point emulation */

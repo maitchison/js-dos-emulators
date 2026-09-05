@@ -17,9 +17,14 @@ EM_JS(int, fury_jit_instantiate, (const uint8_t* bytes, int len), {
     wasmTable.set(idx, inst.exports.f);
     return idx;
   } catch (e) {
-    err("fury_jit_instantiate: " + e);
+    Module.furyJitError = String(e && e.message ? e.message : e);
+    err("fury_jit_instantiate: " + Module.furyJitError);
     return 0;
   }
+});
+
+EM_JS(void, fury_jit_last_error, (char* buf, int len), {
+  stringToUTF8(Module.furyJitError || "", buf, len);
 });
 
 namespace {
