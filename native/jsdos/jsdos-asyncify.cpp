@@ -28,6 +28,20 @@ EM_ASYNC_JS(void, syncSleep, (unsigned int ms, bool nonSkippable), {
     if (nonSkippable) {
       Module.wakeUpAt = Date.now() + ms;
       ++Module.nonskippable_sleep_count;
+      // fury: a short pacing sleep in a worker can block precisely with an
+      // atomic wait -- no timer clamping, no stack switch -- where the page
+      // is cross-origin isolated; the periodic skippable yields still let
+      // the worker's messages through
+      if (ms <= 4 && typeof SharedArrayBuffer !== "undefined" && typeof Atomics !== "undefined") {
+        if (!Module.furyWait) { try { Module.furyWait = new Int32Array(new SharedArrayBuffer(4)); } catch (e) { Module.furyWait = null; } }
+        if (Module.furyWait) {
+          const t0 = performance.now();
+          Atomics.wait(Module.furyWait, 0, 0, ms);
+          ++Module.sleep_count;
+          Module.sleep_time += performance.now() - t0;
+          return;
+        }
+      }
     }
 
     ++Module.sleep_count;
