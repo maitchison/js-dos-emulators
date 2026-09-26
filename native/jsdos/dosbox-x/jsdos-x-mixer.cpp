@@ -924,8 +924,17 @@ static void MIXER_CallBack(float *stream, int len) {
         }
     }
 
-    if (need > 0)
+    if (need > 0) {
+        /* fury: the caller pushes all LEN samples, so what the work buffer
+         * could not fill must be silence -- left alone it was the previous
+         * push's samples, heard as a stutter whenever the emulator fell
+         * behind real time (loading, a log write) */
+        while (need > 0) {
+            *output++ = 0.f;
+            need--;
+        }
         mixer.prebuffer_wait = true;
+    }
 
     remains = (int)mixer.work_in - (int)mixer.work_out;
     if (remains < 0) remains += (int)mixer.work_wrap;
