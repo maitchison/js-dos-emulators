@@ -898,7 +898,9 @@ static void MIXER_Mix(void) {
  * pitch by a hair instead of leaving a gap, and catching up speeds it the same
  * hair instead of throwing samples away. After running dry it plays again at
  * half the target. 0 keeps the stock behaviour below. */
+#include "fury-stretch.h"
 static int furyRatePct = 0;
+static FuryStretch *furyStretch = nullptr;
 static double furyFrac = 0;
 
 static void furyRateCallback(float *output, Bitu need, int32_t volscale1, int32_t volscale2) {
@@ -958,6 +960,20 @@ static void MIXER_CallBack(float *stream, int len) {
     float *output = stream;
     int remains;
 
+    if (furyStretch) {
+        /* everything rendered goes to the stretcher; it gives back exactly
+           what real time asked for */
+        while (mixer.work_out != mixer.work_in) {
+            int32_t *in = &mixer.work[mixer.work_out][0];
+            auto left = MIXER_CLIP((((int64_t)in[0]) * (int64_t)volscale1) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
+            auto right = MIXER_CLIP((((int64_t)in[1]) * (int64_t)volscale2) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
+            furyStretch->push(mixer.mute ? 0.f : (left + right) / 2.f / 32768.0f);
+            mixer.work_out++;
+            if (mixer.work_out >= mixer.work_wrap) mixer.work_out = 0;
+        }
+        furyStretch->pull(output, (int)need);
+        return;
+    }
     if (furyRatePct > 0) {
         furyRateCallback(output, need, volscale1, volscale2);
         return;
@@ -1287,6 +1303,8 @@ void MIXER_Init() {
     }
     furyRatePct = section->Get_int("ratectl");
     furyFrac = 0;
+    delete furyStretch;
+    furyStretch = section->Get_bool("stretch") ? new FuryStretch((int)mixer.freq) : nullptr;
 
     // how many samples per millisecond? compute as improper fraction (sample rate / 1000)
     mixer.samples_per_ms.w = mixer.freq / 1000U;
