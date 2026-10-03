@@ -34,7 +34,9 @@ public:
         rateHz = rate;
         minTarget = rate * 46 / 1000;
         maxTarget = rate * 250 / 1000;
-        target = minTarget;
+        /* a start loads and compiles under the music, the worst lag there is:
+           begin with a deep queue and let quiet spells bring it down */
+        target = rate * 150 / 1000;
         win.resize(W);
         for (int i = 0; i < W; i++) win[i] = 0.5f - 0.5f * std::cos(2.0 * M_PI * i / W);
         in.clear(); acc.assign(W, 0.f); fifo.clear(); fhead = 0;
@@ -98,17 +100,20 @@ private:
         /* the queue is near empty: say so, and keep more from now on */
         if (f < target / 4) grow();
         sinceBump += HS;
-        if (sinceBump > (long)rateHz * 20) { target = std::max(minTarget, target * 9 / 10); sinceBump = 0; }
+        if (sinceBump > (long)rateHz * 10) { target = std::max(minTarget, target * 85 / 100); sinceBump = 0; }
 
         /* a long stall's backlog: skip back to the target, the grain search crossfades */
         if (f > target * 4 + rateHz / 2) nominal += (double)(f - target);
 
         /* the read rate, from the smoothed fill: 1 inside the dead band, so
            ordinary lumpiness never touches the sound */
+        /* squeezing waits for the average; stretching answers whichever is
+           lower, so a sudden stall is met before the average has noticed */
         double e = (fillAvg - target) / (double)target;
+        double eLow = (std::min(fillAvg, (double)f) - target) / (double)target;
         double r = 1.0;
         if (e > 0.5) r = std::min(1.6, 1.0 + 0.8 * (e - 0.5));
-        else if (e < -0.4) r = std::max(0.5, 1.0 + 1.0 * (e + 0.4));
+        else if (eLow < -0.4) r = std::max(0.5, 1.0 + 1.0 * (eLow + 0.4));
 
         long due = (long)std::floor(nominal);
         if (r == 1.0 && prevNat >= 0) {
