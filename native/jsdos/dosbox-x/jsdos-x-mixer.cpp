@@ -892,12 +892,76 @@ static void MIXER_Mix(void) {
     }
 }
 
+/* fury (fury-0du3s): [mixer] ratectl=N reads the queue at 1 +- N% from how
+ * far its fill is from blocksize+prebuffer, interpolating between samples, so
+ * the emulator falling behind real time (asset loads, heavy frames) bends the
+ * pitch by a hair instead of leaving a gap, and catching up speeds it the same
+ * hair instead of throwing samples away. After running dry it plays again at
+ * half the target. 0 keeps the stock behaviour below. */
+static int furyRatePct = 0;
+static double furyFrac = 0;
+
+static void furyRateCallback(float *output, Bitu need, int32_t volscale1, int32_t volscale2) {
+    int remains = (int)mixer.work_in - (int)mixer.work_out;
+    if (remains < 0) remains += (int)mixer.work_wrap;
+    const int target = (int)(mixer.blocksize + mixer.prebuffer_samples);
+    if (mixer.prebuffer_wait && remains >= target / 2) mixer.prebuffer_wait = false;
+    Bitu served = 0;
+    if (!mixer.prebuffer_wait && !mixer.mute) {
+        double err = (double)(remains - target) / (double)target;
+        if (err > 1) err = 1;
+        if (err < -1) err = -1;
+        const double ratio = 1.0 + (furyRatePct / 100.0) * err;
+        while (served < need) {
+            if (mixer.work_out == mixer.work_in) break;
+            Bitu nxt = mixer.work_out + 1;
+            if (nxt >= mixer.work_wrap) nxt = 0;
+            int32_t *a = &mixer.work[mixer.work_out][0];
+            int32_t *b = (nxt == mixer.work_in) ? a : &mixer.work[nxt][0];
+            const double f = furyFrac;
+            int64_t l = (int64_t)(a[0] + (b[0] - a[0]) * f);
+            int64_t r = (int64_t)(a[1] + (b[1] - a[1]) * f);
+            auto left = MIXER_CLIP((l * (int64_t)volscale1) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
+            auto right = MIXER_CLIP((r * (int64_t)volscale2) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
+            *output++ = (left + right) / 2.f / 32768.0f;
+            served++;
+            furyFrac += ratio;
+            while (furyFrac >= 1.0) {
+                furyFrac -= 1.0;
+                if (mixer.work_out == mixer.work_in) break;
+                mixer.work_out++;
+                if (mixer.work_out >= mixer.work_wrap) mixer.work_out = 0;
+            }
+        }
+    }
+    if (served < need) {
+        while (served < need) { *output++ = 0.f; served++; }
+        mixer.prebuffer_wait = true;
+    }
+    /* only a runaway backlog (a long stall) is thrown away */
+    remains = (int)mixer.work_in - (int)mixer.work_out;
+    if (remains < 0) remains += (int)mixer.work_wrap;
+    if (remains > (int)(mixer.work_wrap / 2)) {
+        unsigned int drop = (unsigned int)(remains - target);
+        while (drop > 0) {
+            mixer.work_out++;
+            if (mixer.work_out >= mixer.work_wrap) mixer.work_out = 0;
+            drop--;
+        }
+    }
+}
+
 static void MIXER_CallBack(float *stream, int len) {
     int32_t volscale1 = (int32_t)(mixer.mastervol[0] * (1 << MIXER_VOLSHIFT));
     int32_t volscale2 = (int32_t)(mixer.mastervol[1] * (1 << MIXER_VOLSHIFT));
     Bitu need = (Bitu)len;
     float *output = stream;
     int remains;
+
+    if (furyRatePct > 0) {
+        furyRateCallback(output, need, volscale1, volscale2);
+        return;
+    }
 
     if (mixer.prebuffer_wait) {
         remains = (int)mixer.work_in - (int)mixer.work_out;
@@ -1221,6 +1285,8 @@ void MIXER_Init() {
         if (mixer.prebuffer_samples > (mixer.work_wrap / 2))
             mixer.prebuffer_samples = (mixer.work_wrap / 2);
     }
+    furyRatePct = section->Get_int("ratectl");
+    furyFrac = 0;
 
     // how many samples per millisecond? compute as improper fraction (sample rate / 1000)
     mixer.samples_per_ms.w = mixer.freq / 1000U;
