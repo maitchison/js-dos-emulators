@@ -235,6 +235,10 @@ void server_pause() {
 }
 
 void server_resume() {
+#ifdef JSDOS_X
+  extern void DOSBOX_ResetTickLoop();
+  DOSBOX_ResetTickLoop();
+#endif
   paused = false;
 #ifdef EMSCRIPTEN
   EM_ASM(({
