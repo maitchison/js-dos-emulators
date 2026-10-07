@@ -31,6 +31,13 @@ EM_JS(int, fury_jit_instantiate, (const uint8_t* bytes, int len), {
   }
 });
 
+// a cleared block's module: dropping the table's reference lets the
+// browser collect it, and the slot goes back to the pool
+EM_JS(void, fury_jit_release, (int idx), {
+  wasmTable.set(idx, null);
+  Module.furyTablePool.push(idx);
+});
+
 EM_JS(void, fury_jit_last_error, (char* buf, int len), {
   stringToUTF8(Module.furyJitError || "", buf, len);
 });
