@@ -840,6 +840,21 @@ void MIXER_MixSingle(Bitu /*val*/) {
     PIC_AddEvent(MIXER_MixSingle,1000.0 / mixer.freq);
 }
 
+static void MIXER_PushAudio() {
+    if (mixer.mute || muted) {
+        mixer.work_out = mixer.work_in;
+        return;
+    }
+    int queued = int(mixer.work_in) - int(mixer.work_out);
+    if (queued < 0) queued += mixer.work_wrap;
+    // The AudioWorklet owns playback pacing and buffering; send only completed PCM.
+    while (queued >= PUSH_SIZE) {
+        MIXER_CallBack(blockBuffer, PUSH_SIZE);
+        client_sound_push(blockBuffer, PUSH_SIZE);
+        queued -= PUSH_SIZE;
+    }
+}
+
 static void MIXER_Mix(void) {
     Bitu thr;
 
@@ -873,87 +888,20 @@ static void MIXER_Mix(void) {
     MIXER_FillUp();
 
 
-    static auto pushedAt = GetMsPassedFromStart();
-    static double restSamplesCount = 0;
-    auto now = GetMsPassedFromStart();
-    auto dt = now - pushedAt;
-
-    auto exactSamplesCount = dt * mixer.freq / 1000 + restSamplesCount;
-    int samplesCount = exactSamplesCount;
-    if (samplesCount >= PUSH_SIZE) {
-      restSamplesCount = exactSamplesCount - samplesCount;
-      if (samplesCount > BLOCK_SIZE) {
-        samplesCount = BLOCK_SIZE;
-      }
-      MIXER_CallBack(blockBuffer, samplesCount);
-      if (!mixer.mute && !muted) {
-        client_sound_push(blockBuffer, samplesCount);
-      }
-      pushedAt = now;
-    }
+    MIXER_PushAudio();
 }
 
 static void MIXER_CallBack(float *stream, int len) {
     int32_t volscale1 = (int32_t)(mixer.mastervol[0] * (1 << MIXER_VOLSHIFT));
     int32_t volscale2 = (int32_t)(mixer.mastervol[1] * (1 << MIXER_VOLSHIFT));
-    Bitu need = (Bitu)len;
-    // Leave producer space even when a callback exceeds the usual block size.
-    const Bitu capacity = mixer.work_wrap / 2;
-    const Bitu reserve = std::min(capacity,
-        mixer.prebuffer_samples + 2 * std::min(need, capacity));
-    const Bitu queueLimit = std::min(capacity,
-        std::max(reserve, mixer.freq * Bitu(150) / 1000));
-    float *output = stream;
-    int remains;
-
-    if (mixer.prebuffer_wait) {
-        remains = (int)mixer.work_in - (int)mixer.work_out;
-        if (remains < 0) remains += (int)mixer.work_wrap;
-        if (remains < 0) remains = 0;
-
-        if ((Bitu)remains >= reserve)
-            mixer.prebuffer_wait = false;
-    }
-
-    if (!mixer.prebuffer_wait && !mixer.mute) {
-        int32_t *in = &mixer.work[mixer.work_out][0];
-        while (need > 0) {
-            if (mixer.work_out == mixer.work_in) break;
-            auto left = MIXER_CLIP((((int64_t)(*in++)) * (int64_t)volscale1) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
-            auto right = MIXER_CLIP((((int64_t)(*in++)) * (int64_t)volscale2) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
-            *output++= (left + right) / 2.f / 32768.0f;
-            mixer.work_out++;
-            if (mixer.work_out >= mixer.work_wrap) {
-                mixer.work_out = 0;
-                in = &mixer.work[mixer.work_out][0];
-            }
-            need--;
-        }
-    }
-
-    if (need > 0) {
-        /* fury: the caller pushes all LEN samples, so what the work buffer
-         * could not fill must be silence -- left alone it was the previous
-         * push's samples, heard as a stutter whenever the emulator fell
-         * behind real time (loading, a log write) */
-        while (need > 0) {
-            *output++ = 0.f;
-            need--;
-        }
-        mixer.prebuffer_wait = true;
-    }
-
-    remains = (int)mixer.work_in - (int)mixer.work_out;
-    if (remains < 0) remains += (int)mixer.work_wrap;
-
-    // Preserve recovered PCM up to the latency ceiling; longer stalls need a resync.
-    if ((Bitu)remains > queueLimit) {
-        Bitu drop = (Bitu)remains - queueLimit;
-
-        while (drop > 0) {
-            mixer.work_out++;
-            if (mixer.work_out >= mixer.work_wrap) mixer.work_out = 0;
-            drop--;
+    int32_t *in = &mixer.work[mixer.work_out][0];
+    while (len-- > 0) {
+        auto left = MIXER_CLIP((((int64_t)(*in++)) * (int64_t)volscale1) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
+        auto right = MIXER_CLIP((((int64_t)(*in++)) * (int64_t)volscale2) >> (MIXER_VOLSHIFT + MIXER_VOLSHIFT));
+        *stream++ = (left + right) / 2.f / 32768.0f;
+        if (++mixer.work_out >= mixer.work_wrap) {
+            mixer.work_out = 0;
+            in = &mixer.work[mixer.work_out][0];
         }
     }
 }
