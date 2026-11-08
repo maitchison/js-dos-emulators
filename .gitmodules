@@ -6,7 +6,7 @@
 	url = git@github.com:js-dos/dosbox.git
 [submodule "native/dosbox-x"]
 	path = native/dosbox-x
-	url = git@github.com:js-dos/dosbox-x.git
+	url = https://github.com/maitchison/dosbox-x.git
 [submodule "native/sokol-tools-bin"]
 	path = native/sokol-tools-bin
 	url = git@github.com:floooh/sokol-tools-bin.git
